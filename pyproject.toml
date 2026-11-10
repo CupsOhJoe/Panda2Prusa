@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "panda2prusa"
-version = "1.0.0"
-description = "Convert Bambu Studio / OrcaSlicer .3mf projects to PrusaSlicer .3mf — transforms, multicolor painting, and per-part extruders preserved"
+version = "1.1.0"
+description = "Convert Bambu Studio / OrcaSlicer .3mf projects to PrusaSlicer .3mf — geometry, print/filament settings, multicolor painting, and per-part extruders preserved"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Joseph (CupsOhJoe)", email = "cupsohjoe@gmail.com" }]

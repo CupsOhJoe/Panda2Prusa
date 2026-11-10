@@ -53,18 +53,20 @@ class Transform:
         return cls(tuple(float(p) for p in parts))
 
     def to_string(self, precision: int = 9) -> str:
-        # Match slicer style: plain decimals, trailing-zero trimmed, no sci-notation
-        # for readable values but keep full precision for tiny rotation terms.
-        out = []
-        for v in self.m:
-            if v == 0.0:
-                out.append("0")
-            elif abs(v) < 1e-4 or abs(v) >= 1e6:
-                out.append(repr(v))
-            else:
-                s = f"{v:.{precision}f}".rstrip("0").rstrip(".")
-                out.append(s if s else "0")
-        return " ".join(out)
+        return " ".join(_fmt_num(v, precision) for v in self.m)
+
+    def to_matrix16(self, precision: int = 9) -> str:
+        """PrusaSlicer's 4x4 row-major matrix string (column-vector convention, translation
+        in the last column), as used for the ``matrix`` volume metadata. It is the
+        transpose of the 3MF layout."""
+        m = self.m
+        rows = (
+            (m[0], m[3], m[6], m[9]),
+            (m[1], m[4], m[7], m[10]),
+            (m[2], m[5], m[8], m[11]),
+            (0.0, 0.0, 0.0, 1.0),
+        )
+        return " ".join(_fmt_num(v, precision) for row in rows for v in row)
 
     # -- math -----------------------------------------------------------------
     def _rows4(self) -> tuple[tuple[float, float, float, float], ...]:
@@ -112,6 +114,17 @@ class Transform:
             - m[1] * (m[3] * m[8] - m[5] * m[6])
             + m[2] * (m[3] * m[7] - m[4] * m[6])
         )
+
+
+def _fmt_num(v: float, precision: int) -> str:
+    # Match slicer style: plain decimals, trailing-zero trimmed, no sci-notation
+    # for readable values but keep full precision for tiny rotation terms.
+    if v == 0.0:
+        return "0"
+    if abs(v) < 1e-4 or abs(v) >= 1e6:
+        return repr(v)
+    s = f"{v:.{precision}f}".rstrip("0").rstrip(".")
+    return s if s else "0"
 
 
 def compose_chain(transforms: Iterable[Transform]) -> Transform:
