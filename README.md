@@ -8,9 +8,10 @@
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-ffdd00?logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/cupsohjoe)
 
 Convert **Bambu Studio / OrcaSlicer** `.3mf` project files into **PrusaSlicer**
-`.3mf` project files — geometry *and* settings. The converted file opens in
-PrusaSlicer with the Bambu process and filament settings applied, on your own
-printer profile, with the right colours on the right tools.
+`.3mf` project files. The converted file opens in PrusaSlicer on your own printer with
+your own print and filament presets, the model's parts on the right tools in the right
+colours, painting and editable text intact. If you want the Bambu process and filament
+settings as well, one option brings them along as project presets.
 
 ## What carries over
 
@@ -43,21 +44,37 @@ printer profile, with the right colours on the right tools.
   plates writes one file per plate (`name_plate1.3mf`, `name_plate2.3mf`, ...) by default,
   or one file with each plate on its own PrusaSlicer 2.9 bed with `--plates-as-beds`.
 
-**Settings** (new in 1.1)
+**Settings** — by default, yours
+
+- **Your PrusaSlicer presets stay as they are.** The output selects the printer, print
+  preset and filament presets currently selected in your PrusaSlicer, written exactly as
+  installed, so nothing shows up as modified or as a project copy. What to print with is
+  your call.
+- **Colours** — the Bambu filament colours are applied as tool colours on the mapped
+  extruders, so the 3D view shows the model as designed (`--keep-tool-colours` to opt out;
+  the printer preset then shows as modified only because of the colours).
+- **Per-object and per-part settings** (e.g. a part with more walls or a different infill)
+  become PrusaSlicer object/volume settings, since they are part of the model.
+- **Layer height ranges**, **variable layer height profiles**, **per-layer colour changes
+  and pauses**, and the **wipe tower position** (moved forward if PrusaSlicer's tower would
+  not fit on the bed there).
+
+**Settings** — with `--bambu-settings` (GUI: *Use the Bambu process and filament settings*)
 
 - **Print settings** from `Metadata/project_settings.config`: layer heights, walls, shells,
   infill density/pattern, supports (normal or tree, auto or painted, angles, interfaces,
   distances), brim/skirt, seam and scarf seams, ironing, fuzzy skin, speeds and
   accelerations including overhang slowdown, extrusion widths, compensation, arc fitting,
-  Arachne options, prime tower width and purge volumes. Written to `Metadata/Slic3r_PE.config`.
+  Arachne options, prime tower width. Written as a project print preset named after the file.
 - **Filament settings** per extruder: type, colour, temperatures (bed temperature follows
   the plate type chosen in Bambu Studio), flow ratio, max volumetric speed, cooling rules,
   shrinkage compensation, abrasive flag, retraction overrides, filament start/end G-code.
-- **Per-object and per-part settings** (e.g. a part with more walls or a different infill)
-  become PrusaSlicer object/volume settings.
-- **Layer height ranges**, **variable layer height profiles**, **per-layer colour changes
-  and pauses**, and the **wipe tower position** (moved forward if PrusaSlicer's tower would
-  not fit on the bed there).
+  Written as project filament presets; your selected presets fill in what Bambu Studio has
+  no setting for.
+- **Kept from your PrusaSlicer presets** on a Prusa printer even in this mode: ooze
+  prevention and standby temperature (the XL parks its tools cold), and each filament's
+  max volumetric speed is capped at your filament preset's value, which is the speed the
+  wipe tower purges at. The cap is noted in the log when it applies.
 
 Every value is checked against PrusaSlicer's option schema before it is written, so the
 project loads without "unknown value" substitutions.
@@ -70,15 +87,15 @@ Bambu start G-code. Instead:
 
 | `--printer` | What you get |
 |---|---|
-| `auto` (default) | The printer currently selected in your installed PrusaSlicer, copied exactly, so it opens cleanly selected. Your currently selected print and filament presets are used as the base for anything Bambu Studio has no setting for (tool-change ramming, cancel-object mode, ...). |
+| `auto` (default) | The printer currently selected in your installed PrusaSlicer, copied exactly, so it opens cleanly selected. Your currently selected print and filament presets are kept as well (or, with `--bambu-settings`, serve as the base for anything Bambu Studio has no setting for). |
 | `"Original Prusa XL - 5T Input Shaper 0.4 nozzle"` | Any installed preset by name — see `--list-printers`. |
 | `path\to\profile.ini` or `project.3mf` | A config exported from PrusaSlicer (*File → Export → Export Config*) or a PrusaSlicer project to take the printer from. |
 | `bambu` | Keep the Bambu Lab printer as-is: its bed, height, limits and retraction, all filaments through one nozzle (PrusaSlicer models the AMS as an MMU with a purge tower), generic start/end G-code. Only for PCs **without** PrusaSlicer, to preview and then switch to the real printer after opening. On a PC with PrusaSlicer this is the wrong choice: the file will not print correctly on a Prusa as-is, and the GUI asks before using it. |
 
-In PrusaSlicer the Bambu process and filaments show up as project presets named after
-the file, e.g. `sign.3mf (0.20mm Standard @BBL P2S)` and `sign.3mf (Bambu PLA Basic)`,
-so your own presets are never modified. Mapped tools get the Bambu filament colour as
-their tool colour so the 3D view matches (`--keep-tool-colours` to opt out).
+With `--bambu-settings` the Bambu process and filaments show up as project presets named
+after the file, e.g. `sign.3mf (0.20mm Standard @BBL P2S)` and `sign.3mf (Bambu PLA Basic)`,
+so your installed presets are never modified. In both modes mapped tools get the Bambu
+filament colour as their tool colour so the 3D view matches (`--keep-tool-colours` to opt out).
 
 ## Install
 
@@ -108,8 +125,10 @@ PrusaSlicer presets to pick the printer and fill in settings Bambu Studio does n
 3. **Plates** — `all`, or plate numbers such as `1` or `1,2`.
 4. **All plates in one file on separate beds** — instead of one file per plate, put every
    plate on its own bed of one PrusaSlicer 2.9 project. See the limitations below.
-5. **Convert settings too** — untick for geometry, extruders and painting only (what
-   version 1.0 did).
+5. **Settings** — *Keep my PrusaSlicer print and filament presets* (default: only the
+   colours, extruders, painting, text, per-part settings and colour changes come over),
+   *Use the Bambu process and filament settings* (they become project presets), or
+   *Geometry only*.
 6. **Target PrusaSlicer printer profile** — *Auto* (the printer currently selected in
    PrusaSlicer, recommended), any installed printer preset, *Bambu Lab printer as-is*
    (only for a PC without PrusaSlicer), or *Browse…* for an exported `.ini` or a
@@ -137,8 +156,9 @@ python -m panda2prusa [options] input.3mf output.3mf
 | `--map 3=2,1=1` | Bambu filament slot → Prusa extruder. Unmapped used slots keep their number. Without `--map`, an interactive prompt asks (or compacts to 1..K when not interactive). |
 | `--keep-extruders` | Keep the Bambu slot numbers. No renumbering, no prompt. |
 | `--printer WHICH` | Printer profile for the output: `auto` (default), an installed preset name, a `.ini`/`.3mf` file, or `bambu`. See the table above. |
+| `--bambu-settings` | Translate the Bambu process and filament settings into project presets instead of keeping the presets selected in PrusaSlicer. |
 | `--no-settings` | Geometry, extruders and painting only; no slicer settings. |
-| `--no-base-presets` | Layer the Bambu settings on PrusaSlicer defaults instead of on your currently selected print and filament presets. |
+| `--no-base-presets` | With `--bambu-settings` (implied): layer the Bambu settings on PrusaSlicer defaults instead of on your currently selected print and filament presets. |
 | `--keep-tool-colours` | Keep the printer profile's extruder colours instead of the Bambu filament colours. |
 | `--prusa-config-dir DIR` | PrusaSlicer configuration folder, if it is not in the usual place (`%APPDATA%\PrusaSlicer`). The `PRUSA_SLICER_CONFIG_DIR` environment variable does the same. |
 | `--info FILE` | Show a file's plates, filaments and preset names, then exit. |
@@ -156,6 +176,7 @@ python -m panda2prusa --list-printers
 python -m panda2prusa sign.3mf sign_prusa.3mf --printer "Original Prusa XL - 2T Input Shaper 0.4 nozzle"
 python -m panda2prusa sign.3mf sign_prusa.3mf --printer my_xl.ini   # printer from an exported config
 python -m panda2prusa sign.3mf sign_prusa.3mf --printer bambu       # PC without PrusaSlicer
+python -m panda2prusa sign.3mf sign_prusa.3mf --bambu-settings      # Bambu process + filaments as project presets
 python -m panda2prusa sign.3mf sign_prusa.3mf --no-settings         # geometry only
 python -m panda2prusa --info sign.3mf
 ```
@@ -172,10 +193,11 @@ The exit code is non-zero when the conversion fails.
 
 ## Opening the result in PrusaSlicer
 
-- The Bambu process and filaments appear as project presets named after the file, e.g.
-  `sign_prusa.3mf (0.20mm Standard @BBL P2S)` and `sign_prusa.3mf (Bambu PLA Basic)`.
-  Your own presets are not changed. Pick your own filament presets from the dropdowns if
-  you prefer them; the tool colours stay as the Bambu colours.
+- Your printer, print preset and filament presets are selected as you left them. The
+  printer shows as *(modified)* only because the tool colours now carry the Bambu colours.
+- With `--bambu-settings`, the Bambu process and filaments appear instead as project
+  presets named after the file, e.g. `sign_prusa.3mf (0.20mm Standard @BBL P2S)`; pick your
+  own presets from the dropdowns whenever you prefer them.
 - To change a text part, select it and open the **Text** tool (the *T* icon in the left
   toolbar, or right-click the part → *Edit text*).
 - A `--plates-as-beds` file shows a bed selector at the bottom left of the 3D view; each
@@ -215,9 +237,13 @@ The result lands in `dist\Panda2Prusa.exe`.
 - **The wipe tower is stepped and stops below the top of the model.** PrusaSlicer sizes each
   tower layer by the colour changes at that height and above, and prints no tower at all
   above the last colour change. A print whose top is a single colour has a short tower.
-- **A short line floats above the tower at the end.** That is PrusaSlicer's end-of-print
-  unload/ramming of the last tool, which it performs at the final layer height over the
-  tower footprint. Prusa's own profiles produce the same line; it is harmless.
+- **At the end of the print the nozzle extrudes in mid-air above the tower.** That is
+  PrusaSlicer's end-of-print ramming of the last tool, which it performs at the final layer
+  height over the tower footprint. When the tower stopped lower, the rammed filament
+  (about 10 mm³ on an XL) curls down onto the tower as a strand. Prusa's own profiles do the
+  same. To avoid it, untick *Enable ramming for multitool setups* under Filament Settings →
+  Advanced → Multitool ramming for the filament on the last tool, or move the tower where
+  the strand does no harm.
 
 ## Running the tests
 
@@ -234,7 +260,7 @@ pytest
 
 The option schema in `panda2prusa/prusa_schema.py` / `bambu_schema.py` is generated from
 the slicer sources; regenerate for a new slicer version with
-`python tools/gen_schema.py --prusa-ref version_2.9.6 --prusa-defaults defaults.ini`
+`python tools/gen_schema.py --prusa-ref version_2.9.7 --prusa-defaults defaults.ini`
 (`defaults.ini` from `prusa-slicer-console --save defaults.ini`).
 
 ## Status

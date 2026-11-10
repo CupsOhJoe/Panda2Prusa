@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.2.0 — 2026-11-10
+
+### Changed
+- Default: the print and filament presets selected in PrusaSlicer are kept exactly;
+  only the Bambu filament colours are applied, as tool colours. Previously the Bambu
+  process and filament settings replaced them as project presets.
+- GUI: the "Convert settings too" checkbox is now a three-way choice: keep my presets
+  (default), use the Bambu settings, geometry only.
+- Option schema regenerated from PrusaSlicer 2.9.7.
+
+### Added
+- `--bambu-settings`: translate the Bambu process and filament settings into project
+  presets (the 1.1 behaviour). `--no-base-presets` implies it.
+
+### Fixed
+- Bambu settings on a Prusa printer switched ooze prevention off and purged at Bambu's
+  volumetric speed, so XL tools parked hot and the wipe tower failed; both now follow the
+  PrusaSlicer presets.
+
 ## v1.1.0 — 2026-11-09
 
 ### Added

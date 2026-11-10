@@ -8,6 +8,8 @@ from panda2prusa.prusa_config import PrusaConfig, enum_values, is_vector
 from panda2prusa.translate import (
     MODE_BAMBU,
     MODE_REFERENCE,
+    SETTINGS_BAMBU,
+    SETTINGS_PRESETS,
     TargetPresets,
     translate_object_settings,
     translate_project,
@@ -133,7 +135,7 @@ def _filament_base(name, ftype, temp, extra=None):
     return cfg
 
 
-def _reference_target(n=5):
+def _reference_target(n=5, settings_mode=SETTINGS_BAMBU):
     bases = [
         _filament_base("Prusament PLA @XLIS", "PLA", "215"),
         _filament_base("Prusament PETG @XLIS", "PETG", "240",
@@ -145,6 +147,7 @@ def _reference_target(n=5):
         printer_name="Original Prusa XL - 5T Input Shaper 0.4 nozzle",
         print_base=PrusaConfig({"layer_height": "0.15", "gcode_label_objects": "firmware", "wipe_tower_cone_angle": "25"}),
         print_base_name="0.20mm SPEED @XLIS 0.4",
+        settings_mode=settings_mode,
         filament_bases=bases,
         filament_base_names=["Prusament PLA @XLIS", "Prusament PETG @XLIS", "", "", ""],
     )
@@ -288,6 +291,32 @@ def test_wipe_tower_pulled_forward_to_fit_on_the_bed():
     assert tr.config.get("wipe_tower_y") == f"{y:g}"
 
 
+def test_bambu_settings_keep_the_prusa_tool_parking_behaviour():
+    # the XL cools parked tools (ooze prevention); Bambu's single-nozzle values must not switch that off
+    target = _reference_target()
+    target.print_base.set("ooze_prevention", "1")
+    target.print_base.set("standby_temperature_delta", "-110")
+    bambu = _bambu(ooze_prevention="0", standby_temperature_delta="-5")
+    c = translate_project(bambu, {1: 1, 3: 2}, target, [1, 3]).config
+    assert c.get("ooze_prevention") == "1"
+    assert c.get("standby_temperature_delta") == "-110"
+    # with the Bambu printer as-is the Bambu values are the ones that apply
+    c = translate_project(bambu, {1: 1, 2: 2, 3: 3}, TargetPresets(mode=MODE_BAMBU), [1, 2, 3]).config
+    assert c.get("ooze_prevention") == "0"
+    assert c.get("standby_temperature_delta") == "-5"
+
+
+def test_bambu_volumetric_speed_capped_at_the_prusa_filament_preset():
+    target = _reference_target()
+    target.filament_bases[0] = _filament_base(
+        "Prusament PLA @XLIS", "PLA", "215", {"filament_max_volumetric_speed": "15"}
+    )
+    tr = translate_project(_bambu(), {1: 1, 3: 2}, target, [1, 3])
+    # Bambu PLA Basic says 21 mm3/s, the Prusa filament preset 15: the hotend's limit wins
+    assert tr.config.vector("filament_max_volumetric_speed")[:2] == ["15", "8"]
+    assert any("filament_max_volumetric_speed" in w and "21 -> 15" in w for w in tr.warnings)
+
+
 def test_wipe_tower_position_clamped_to_bed(ref):
     x, y, rot = ref.wipe_tower_pos
     assert 0 <= x <= 360 - 35 and y == 10 and rot == 0
@@ -417,3 +446,39 @@ def test_object_settings_translation():
     assert any("bambu_only_thing" in w for w in warnings)
     for k in out:
         assert k == "extruder" or k in S.OBJECT_KEYS or k in S.REGION_KEYS
+
+
+# -- keeping the user's PrusaSlicer presets (the default) ---------------------------------
+
+def test_keep_presets_mode_writes_the_user_presets_unchanged():
+    tr = translate_project(_bambu(), {1: 1, 3: 2}, _reference_target(settings_mode=SETTINGS_PRESETS), [1, 3])
+    c = tr.config
+    assert c.get("print_settings_id") == "0.20mm SPEED @XLIS 0.4"
+    assert c.get("layer_height") == "0.15"  # the user's print preset, not Bambu's 0.2
+    assert c.get("gcode_label_objects") == "firmware"
+    assert "fill_density" not in c and "support_material" not in c  # nothing from Bambu's process
+    assert c.vector("filament_settings_id")[:2] == ["Prusament PLA @XLIS", "Prusament PETG @XLIS"]
+    assert c.vector("temperature")[:2] == ["215", "240"]  # the presets' values, not Bambu's
+    assert c.vector("filament_retract_length")[:2] == ["nil", "1.1"]
+    assert c.vector("filament_colour")[:2] == ["#FF8000", "#FF8000"]  # filament presets untouched
+    # only the tool colours carry the Bambu colours (slot 1 -> tool 1, slot 3 -> tool 2)
+    assert c.vector("extruder_colour") == ["#111111", "#333333", "#3EC0FF", "#FF4F4F", "#FBEB7D"]
+    assert c.get("printer_settings_id") == "Original Prusa XL - 5T Input Shaper 0.4 nozzle"
+    assert c.get("bed_shape") == "0x0,360x0,360x360,0x360"
+    assert tr.extruders == 5
+
+
+def test_keep_presets_mode_can_leave_tool_colours_alone():
+    t = _reference_target(settings_mode=SETTINGS_PRESETS)
+    t.keep_tool_colours = True
+    tr = translate_project(_bambu(), {1: 1, 3: 2}, t, [1, 3])
+    assert tr.config.vector("extruder_colour") == ["#FF8000", "#DB5182", "#3EC0FF", "#FF4F4F", "#FBEB7D"]
+
+
+def test_keep_presets_mode_needs_presets():
+    # without a print preset to keep, the Bambu settings are translated instead
+    t = _reference_target(settings_mode=SETTINGS_PRESETS)
+    t.print_base = None
+    tr = translate_project(_bambu(), {1: 1, 3: 2}, t, [1, 3])
+    assert tr.config.get("print_settings_id") == "0.20mm Standard @BBL P1S"
+    assert tr.config.get("layer_height") == "0.2"

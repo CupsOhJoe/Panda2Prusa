@@ -138,6 +138,7 @@ def _cmd_convert(args) -> int:
         plates=plates,
         extruder_map=extruder_map,
         settings=not args.no_settings,
+        bambu_settings=args.bambu_settings or args.no_base_presets,
         printer=args.printer,
         use_base_presets=not args.no_base_presets,
         keep_tool_colours=args.keep_tool_colours,
@@ -229,6 +230,13 @@ def build_parser() -> argparse.ArgumentParser:
              "PrusaSlicer, switch printer after opening)",
     )
     g.add_argument(
+        "--bambu-settings",
+        action="store_true",
+        help="translate the Bambu process and filament settings into project presets. "
+             "Default: keep the print and filament presets selected in PrusaSlicer and only "
+             "apply the Bambu filament colours as tool colours",
+    )
+    g.add_argument(
         "--no-settings",
         action="store_true",
         help="geometry, extruders and painting only; do not write any slicer settings",
@@ -236,8 +244,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument(
         "--no-base-presets",
         action="store_true",
-        help="layer the Bambu settings on PrusaSlicer defaults instead of on the print and "
-             "filament presets currently selected in PrusaSlicer",
+        help="with --bambu-settings (implied): layer the Bambu settings on PrusaSlicer "
+             "defaults instead of on the presets currently selected in PrusaSlicer",
     )
     g.add_argument(
         "--keep-tool-colours",

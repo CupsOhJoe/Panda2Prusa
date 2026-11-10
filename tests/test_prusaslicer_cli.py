@@ -67,19 +67,25 @@ def _footer(gcode: str, key: str):
     return m.group(1) if m else None
 
 
-@pytest.mark.parametrize("printer", ["auto", "bambu"])
-def test_prusaslicer_slices_converted_project(sample, tmp_path, printer):
+@pytest.mark.parametrize("printer, bambu_settings", [("auto", False), ("auto", True), ("bambu", True)])
+def test_prusaslicer_slices_converted_project(sample, tmp_path, printer, bambu_settings):
     if printer == "auto" and PrusaInstall.find() is None:
         pytest.skip("no PrusaSlicer configuration to take the printer from")
     out = tmp_path / "converted.3mf"
-    result = convert_file(sample, str(out), printer=printer)  # one file per plate by default
+    result = convert_file(sample, str(out), printer=printer, bambu_settings=bambu_settings)
     assert result.stats.settings_written
     project = read_bambu_3mf(sample)
     assert len(result.outputs) == max(1, len(project.plate_ids))
     gcode = ""
     for path in result.outputs:
         gcode = _slice(path, tmp_path)
-    assert _footer(gcode, "layer_height") == project.config.scalar("layer_height")
+    if bambu_settings:
+        assert _footer(gcode, "layer_height") == project.config.scalar("layer_height")
+    else:
+        # the user's own print preset is kept, Bambu's layer height is not applied
+        base = PrusaInstall.find().preset("print", result.stats.print_name)
+        assert base is not None
+        assert _footer(gcode, "layer_height") == base.get("layer_height")
     assert _footer(gcode, "print_settings_id") == result.stats.print_name
     assert _footer(gcode, "printer_settings_id") == result.stats.printer_name
     colours = (_footer(gcode, "filament_colour") or "").split(";")

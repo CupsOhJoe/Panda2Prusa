@@ -27,7 +27,7 @@ from tkinter import (
     DISABLED,
     NORMAL,
 )
-from tkinter import ttk
+from tkinter import Radiobutton, ttk
 
 from .convert import (
     PLATES_BEDS,
@@ -68,7 +68,7 @@ class App:
         self.output_var = StringVar()
         self.plate_var = StringVar(value="all")
         self.beds_var = BooleanVar(value=False)
-        self.settings_var = BooleanVar(value=True)
+        self.settings_var = StringVar(value="presets")  # presets | bambu | none
         self.printer_var = StringVar()
         self.printer_file: str | None = None
 
@@ -94,12 +94,18 @@ class App:
             variable=self.beds_var,
         ).pack(side="left", padx=(12, 0))
         row += 1
-        Checkbutton(
-            master,
-            text="Convert settings too (process, filaments, colour changes, layer ranges)",
-            variable=self.settings_var,
-            command=self._toggle_settings,
-        ).grid(row=row, column=0, columnspan=2, sticky="w", padx=8, pady=(8, 2))
+        Label(master, text="Settings:").grid(row=row, column=0, sticky="w", padx=8, pady=(8, 2))
+        for value, text in (
+            ("presets", "Keep my PrusaSlicer print and filament presets; bring over the Bambu colours, "
+                        "extruders, painting, text, per-part settings and colour changes (recommended)"),
+            ("bambu", "Use the Bambu process and filament settings as project presets"),
+            ("none", "Geometry only (no slicer settings)"),
+        ):
+            row += 1
+            Radiobutton(
+                master, text=text, value=value, variable=self.settings_var, command=self._toggle_settings,
+                wraplength=560, justify="left",
+            ).grid(row=row, column=0, columnspan=2, sticky="w", padx=8)
         row += 1
         Label(master, text="Target PrusaSlicer printer profile:").grid(row=row, column=0, sticky="w", padx=8, pady=(4, 2))
         row += 1
@@ -142,7 +148,7 @@ class App:
         self.printer_var.set(values[0])
 
     def _toggle_settings(self) -> None:
-        self.printer_box.config(state="readonly" if self.settings_var.get() else "disabled")
+        self.printer_box.config(state="readonly" if self.settings_var.get() != "none" else "disabled")
 
     def _printer_selected(self, _event=None) -> None:
         if self.printer_var.get() == _BAMBU_LABEL and self.prusa_installed:
@@ -302,7 +308,9 @@ class App:
 
     def _start(self, inp, outp, plates, extruder_map) -> None:
         self._log(f"Converting → {os.path.basename(outp)} …")
-        settings = self.settings_var.get()
+        settings_mode = self.settings_var.get()
+        settings = settings_mode != "none"
+        bambu_settings = settings_mode == "bambu"
         printer = self._printer_spec()
         layout = PLATES_BEDS if self.beds_var.get() else PLATES_SPLIT
         threading.Thread(
@@ -313,7 +321,7 @@ class App:
         try:
             result = convert_file(
                 inp, outp, plates=plates, extruder_map=extruder_map, settings=settings,
-                printer=printer, plate_layout=layout,
+                bambu_settings=bambu_settings, printer=printer, plate_layout=layout,
             )
             s = result.stats
             lines = [

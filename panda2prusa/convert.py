@@ -11,7 +11,7 @@ from .bambu_config import BambuConfig
 from .paint import used_states, PaintError
 from .prusa_config import PrusaConfig, PrusaInstall
 from .reader import read_bambu_3mf, BambuProject
-from .translate import MODE_BAMBU, MODE_REFERENCE, TargetPresets
+from .translate import MODE_BAMBU, MODE_REFERENCE, SETTINGS_BAMBU, SETTINGS_PRESETS, TargetPresets
 from .writer import write_prusa_3mf, WriteStats
 
 PRINTER_AUTO = "auto"
@@ -143,16 +143,23 @@ def resolve_target(
     use_base_presets: bool = True,
     keep_tool_colours: bool = False,
     prusa_config_dir: Optional[str] = None,
+    bambu_settings: bool = False,
 ) -> TargetPresets:
     """Decide which PrusaSlicer presets the converted settings are layered on.
 
     ``printer``: "auto" (the printer currently selected in an installed PrusaSlicer),
     "bambu" (translate the Bambu printer settings instead), the name of an installed
     PrusaSlicer printer preset, or a path to an exported ``.ini`` / PrusaSlicer ``.3mf``.
+
+    By default the print and filament presets selected in PrusaSlicer are kept exactly
+    and only the Bambu colours are applied as tool colours. ``bambu_settings`` (or
+    ``use_base_presets=False``, or no PrusaSlicer presets to keep) translates the Bambu
+    process and filament settings into project presets instead.
     """
     spec = (printer or PRINTER_AUTO).strip()
     inst = PrusaInstall.find(prusa_config_dir)
     target = TargetPresets(mode=MODE_BAMBU, keep_tool_colours=keep_tool_colours)
+    want_presets = not bambu_settings and use_base_presets
 
     if spec.lower() in (PRINTER_BAMBU, "none", ""):
         target.description = "Bambu printer settings translated (no PrusaSlicer printer profile)"
@@ -226,6 +233,21 @@ def resolve_target(
         used_names = sorted({n for n in names if n})
         if used_names:
             desc.append("filament bases " + ", ".join(f"'{n}'" for n in used_names))
+    if want_presets:
+        target.settings_mode = SETTINGS_PRESETS
+        if target.keeps_presets:
+            tools = ", ".join(str(e) for e in sorted(slot_of_extruder or {}))
+            colours = "" if keep_tool_colours else f"; Bambu colours on tool(s) {tools}" if tools else ""
+            target.description = (
+                f"your PrusaSlicer presets kept: printer '{printer_name}', print "
+                f"'{target.print_base_name}', filaments "
+                + ", ".join(f"'{n}'" for n in used_names) + colours
+            )
+            return target
+        target.settings_mode = SETTINGS_BAMBU
+        desc.append("Bambu process and filament settings translated (no PrusaSlicer presets to keep)")
+    else:
+        desc.append("Bambu process and filament settings translated")
     target.description = "; ".join(desc)
     return target
 
@@ -242,6 +264,7 @@ def convert_file(
     keep_tool_colours: bool = False,
     prusa_config_dir: Optional[str] = None,
     plate_layout: str = PLATES_SPLIT,
+    bambu_settings: bool = False,
 ) -> ConversionResult:
     """Convert a Bambu/Orca .3mf at ``input_path`` to a Prusa .3mf at ``output_path``.
 
@@ -249,8 +272,10 @@ def convert_file(
     ``extruder_map`` explicitly maps Bambu filament slots to Prusa extruders
     (``{}`` keeps the original numbering); when None and ``compact_extruders`` is
     true, sparse slots are compacted to sequential extruders automatically.
-    ``settings`` enables translation of process/filament/printer settings;
-    ``printer`` selects the PrusaSlicer printer profile (see ``resolve_target``).
+    ``settings`` enables writing slicer settings at all; ``bambu_settings`` translates the
+    Bambu process and filament settings into project presets instead of keeping the
+    presets selected in PrusaSlicer (see ``resolve_target``);
+    ``printer`` selects the PrusaSlicer printer profile.
     When several plates are converted, ``plate_layout`` decides between one file per
     plate (``output_plateN.3mf``, the default) and one file with each plate on its own
     PrusaSlicer bed (``"beds"``, PrusaSlicer 2.9+).
@@ -270,7 +295,8 @@ def convert_file(
         for slot in sorted(final_map):
             slot_of_extruder.setdefault(final_map[slot], slot)
         target = resolve_target(
-            printer, project.config, slot_of_extruder, use_base_presets, keep_tool_colours, prusa_config_dir
+            printer, project.config, slot_of_extruder, use_base_presets, keep_tool_colours, prusa_config_dir,
+            bambu_settings=bambu_settings,
         )
 
     wanted = [p for p in (plates or project.plate_ids) if p in project.plate_ids] or [None]

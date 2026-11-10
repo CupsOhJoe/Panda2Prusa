@@ -30,6 +30,10 @@ from .prusa_config import PrusaConfig, enum_values, is_nullable, is_vector, opti
 MODE_REFERENCE = "reference"  # printer settings from a PrusaSlicer profile
 MODE_BAMBU = "bambu"  # printer settings translated from the Bambu project
 
+# What the print and filament layers of the output are.
+SETTINGS_PRESETS = "presets"  # the user's selected PrusaSlicer presets, untouched; Bambu colours as tool colours
+SETTINGS_BAMBU = "bambu"  # Bambu process and filament settings translated into project presets
+
 # Preset bookkeeping keys that must not travel into a project config.
 _STRIP_KEYS = frozenset(
     {
@@ -58,7 +62,17 @@ class TargetPresets:
     filament_bases: List[Optional[PrusaConfig]] = field(default_factory=list)  # per target extruder
     filament_base_names: List[str] = field(default_factory=list)
     keep_tool_colours: bool = False  # leave the printer profile's extruder_colour alone
+    settings_mode: str = SETTINGS_BAMBU  # SETTINGS_PRESETS needs MODE_REFERENCE and base presets
     description: str = ""
+
+    @property
+    def keeps_presets(self) -> bool:
+        return (
+            self.settings_mode == SETTINGS_PRESETS
+            and self.mode == MODE_REFERENCE
+            and self.printer is not None
+            and self.print_base is not None
+        )
 
     @property
     def extruders(self) -> Optional[int]:
@@ -296,8 +310,10 @@ def translate_project(
     tower position to carry over.
     """
     warnings: List[str] = []
-    cfg = PrusaConfig(S.DEFAULTS)
-    defaults = cfg.copy()
+    defaults = PrusaConfig(S.DEFAULTS)
+    # Keeping the user's presets: write only what the presets define, so PrusaSlicer
+    # fills the rest with its own defaults and recognises the presets as unmodified.
+    cfg = PrusaConfig() if target.keeps_presets else defaults.copy()
 
     # Full map including identity for used slots.
     full_map = {s: extruder_map.get(s, s) for s in used_slots}
@@ -318,14 +334,18 @@ def translate_project(
         n_ext = max([1] + list(full_map.values()))
         _synthesize_printer(bambu, cfg, n_ext, slot_of_extruder, warnings)
 
-    # --- print layer --------------------------------------------------------------
-    if target.print_base is not None:
+    # --- print and filament layers --------------------------------------------------
+    if target.keeps_presets:
         cfg.update_from(target.print_base, keys=[k for k in target.print_base.keys() if k in S.PRINT_KEYS])
-    _apply_print_rules(bambu, cfg, full_map, warnings)
-    cfg.set("print_settings_id", bambu.scalar("print_settings_id") or "Bambu Studio project")
-
-    # --- filament layer -----------------------------------------------------------
-    _apply_filament_rules(bambu, cfg, n_ext, slot_of_extruder, target, warnings)
+        cfg.set("print_settings_id", target.print_base_name)
+        _apply_filament_presets(bambu, cfg, n_ext, slot_of_extruder, target)
+    else:
+        if target.print_base is not None:
+            cfg.update_from(target.print_base, keys=[k for k in target.print_base.keys() if k in S.PRINT_KEYS])
+        keep = _PRINTER_COUPLED_PRINT_KEYS if target.print_base is not None else frozenset()
+        _apply_print_rules(bambu, cfg, full_map, warnings, keep=keep)
+        cfg.set("print_settings_id", bambu.scalar("print_settings_id") or "Bambu Studio project")
+        _apply_filament_rules(bambu, cfg, n_ext, slot_of_extruder, target, warnings)
 
     # --- project keys -------------------------------------------------------------
     wipe_pos = _apply_project_keys(bambu, cfg, n_ext, slot_of_extruder, plate_index, target, warnings)
@@ -345,13 +365,26 @@ def translate_project(
 
 # -- print ----------------------------------------------------------------------------------
 
-def _apply_print_rules(bambu: BambuConfig, cfg: PrusaConfig, full_map: Dict[int, int], warnings: list) -> None:
+# How the printer parks idle tools. A Prusa print preset tunes these for the Prusa hardware
+# (the XL cools parked tools so they do not ooze); Bambu's values describe a single-nozzle
+# machine and would leave every parked XL tool at full temperature.
+_PRINTER_COUPLED_PRINT_KEYS = frozenset({"ooze_prevention", "standby_temperature_delta"})
+
+
+def _apply_print_rules(
+    bambu: BambuConfig,
+    cfg: PrusaConfig,
+    full_map: Dict[int, int],
+    warnings: list,
+    keep: frozenset = frozenset(),
+) -> None:
+    """Translate Bambu process settings onto ``cfg``; keys in ``keep`` stay as they are."""
     extruder_keys = {
         "perimeter_extruder", "infill_extruder", "solid_infill_extruder",
         "support_material_extruder", "support_material_interface_extruder",
     }
     for rule in K.PRINT_RULES:
-        if not bambu.has(rule.bambu):
+        if not bambu.has(rule.bambu) or rule.prusa in keep:
             continue
         v = _apply_rule(rule, bambu.scalar(rule.bambu), cfg, warnings)
         if v is None:
@@ -457,6 +490,7 @@ def _apply_filament_rules(
     vectors: Dict[str, list] = {key: [None] * n_ext for key in _FILAMENT_VECTOR_KEYS}
     ids: list = []
     colours: list = []
+    capped: list = []
     for e in range(1, n_ext + 1):
         base = target.filament_bases[e - 1] if e - 1 < len(target.filament_bases) else None
         slot = slot_of_extruder.get(e)
@@ -484,6 +518,14 @@ def _apply_filament_rules(
                 v = _apply_rule(rule, bambu.scalar(rule.bambu), cfg, warnings)
                 if v is not None:
                     vectors[rule.prusa][e - 1] = v
+        # Bambu tunes the volumetric limit for its own hotends; on a Prusa the filament
+        # preset knows what the Nextruder can melt. The wipe tower purges at this limit.
+        if target.mode == MODE_REFERENCE and base is not None and "filament_max_volumetric_speed" in base:
+            limit = _num((base.vector("filament_max_volumetric_speed") or [None])[0])
+            asked = _num(vectors["filament_max_volumetric_speed"][e - 1])
+            if limit and asked and asked > limit:
+                vectors["filament_max_volumetric_speed"][e - 1] = f"{limit:g}"
+                capped.append(f"tool {e}: {asked:g} -> {limit:g}")
         if target.mode == MODE_BAMBU:
             chamber = source("chamber_temperatures")
             if chamber and slot - 1 < len(chamber) and _num(chamber[slot - 1]) is not None:
@@ -491,6 +533,12 @@ def _apply_filament_rules(
         fid = source("filament_settings_id")
         ids.append(fid[slot - 1] if fid and slot - 1 < len(fid) else base_id or f"Bambu filament {slot}")
         colours.append(vectors["filament_colour"][e - 1])
+
+    if capped:
+        warnings.append(
+            "filament_max_volumetric_speed capped at the PrusaSlicer filament preset's value "
+            "(the Prusa hotend's limit) in mm3/s: " + ", ".join(capped)
+        )
 
     for key, vals in vectors.items():
         if all(v is None for v in vals):
@@ -517,6 +565,48 @@ def _apply_filament_rules(
         cfg.set("filament_vendor", vendors[first_slot - 1])
     elif target.filament_bases and target.filament_bases[0] is not None and "filament_vendor" in target.filament_bases[0]:
         cfg.set("filament_vendor", target.filament_bases[0].get("filament_vendor"))
+
+
+def _bambu_tool_colours(bambu: BambuConfig, cfg: PrusaConfig, n_ext: int, slot_of_extruder: Dict[int, int]) -> None:
+    """Give mapped tools their Bambu filament colour as the tool colour (PrusaSlicer paints
+    the 3D view with extruder_colour when it is set, which Prusa XL profiles do)."""
+    colours = bambu.filament_colours
+    tool_colours = ((cfg.vector("extruder_colour") or []) + [""] * n_ext)[:n_ext]
+    for e, slot in slot_of_extruder.items():
+        if 1 <= e <= n_ext and 0 < slot <= len(colours) and colours[slot - 1]:
+            tool_colours[e - 1] = colours[slot - 1]
+    cfg.set_vector("extruder_colour", tool_colours)
+
+
+def _apply_filament_presets(
+    bambu: BambuConfig, cfg: PrusaConfig, n_ext: int, slot_of_extruder: Dict[int, int], target: TargetPresets
+) -> None:
+    """Write the user's selected filament presets exactly as they are, one per tool, so
+    PrusaSlicer selects them unmodified. Only the tool colours come from the Bambu file."""
+    bases = [target.filament_bases[e] if e < len(target.filament_bases) else None for e in range(n_ext)]
+    names = [target.filament_base_names[e] if e < len(target.filament_base_names) else "" for e in range(n_ext)]
+    keys = set()
+    for base in bases:
+        if base is not None:
+            keys |= {k for k in base.keys() if k in S.FILAMENT_KEYS and k not in _STRIP_KEYS}
+    for key in sorted(keys):
+        if is_vector(key):
+            vals = []
+            for base in bases:
+                v = (base.vector(key) or [None])[0] if base is not None and key in base else None
+                vals.append(v if v is not None else _base_filament_value(key, None, cfg) or "")
+            cfg.set_vector(key, vals)
+        else:
+            first = next(b for b in bases if b is not None and key in b)
+            cfg.set(key, first.get(key))
+    ids = []
+    for base, name in zip(bases, names):
+        if not name and base is not None:
+            name = (base.vector("filament_settings_id") or [""])[0]
+        ids.append(name)
+    cfg.set_vector("filament_settings_id", ids)
+    if not target.keep_tool_colours:
+        _bambu_tool_colours(bambu, cfg, n_ext, slot_of_extruder)
 
 
 # -- printer (bambu mode) -----------------------------------------------------------------
