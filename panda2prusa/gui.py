@@ -314,10 +314,12 @@ class App:
         printer = self._printer_spec()
         layout = PLATES_BEDS if self.beds_var.get() else PLATES_SPLIT
         threading.Thread(
-            target=self._run, args=(inp, outp, plates, extruder_map, settings, printer, layout), daemon=True
+            target=self._run,
+            args=(inp, outp, plates, extruder_map, settings, bambu_settings, printer, layout),
+            daemon=True,
         ).start()
 
-    def _run(self, inp, outp, plates, extruder_map, settings, printer, layout) -> None:
+    def _run(self, inp, outp, plates, extruder_map, settings, bambu_settings, printer, layout) -> None:
         try:
             result = convert_file(
                 inp, outp, plates=plates, extruder_map=extruder_map, settings=settings,

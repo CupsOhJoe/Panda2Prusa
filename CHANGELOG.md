@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.1 — 2026-11-11
+
+### Fixed
+- GUI: every conversion failed with `NameError: name 'bambu_settings' is not defined`.
+
 ## v1.2.0 — 2026-11-10
 
 ### Changed
