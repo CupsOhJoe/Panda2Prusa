@@ -66,6 +66,16 @@ LAYER_RANGES_FILE = "Metadata/Prusa_Slicer_layer_config_ranges.xml"
 LAYER_HEIGHTS_FILE = "Metadata/Slic3r_PE_layer_heights_profile.txt"
 WIPE_TOWER_FILE = "Metadata/Prusa_Slicer_wipe_tower_information.xml"
 
+# The "Application" metadata of the model file. PrusaSlicer stamps its own projects
+# "PrusaSlicer-<version>", and PrusaSlicer 3 hands a file to its 2.x project reader (the
+# one that understands Slic3r_PE.config and Slic3r_PE_model.config) only when that stamp
+# carries a 2.x version; any other 3mf is opened as plain geometry with "The 3MF file
+# does not contain PrusaSlicer configuration". The version is the one the option schema
+# was generated from (see prusa_schema.py), which is the format this writer produces.
+PRUSA_PROJECT_APPLICATION = "PrusaSlicer-2.9.7"
+# Files that are not a complete PrusaSlicer project keep the converter's own name.
+GENERIC_APPLICATION = "panda2prusa"
+
 
 @dataclass
 class WriteStats:
@@ -418,7 +428,7 @@ def write_prusa_3mf(
     paint_kinds: set = set()
     for mo in merged.values():
         paint_kinds |= mo.paint_kinds
-    _add_metadata(model, project, paint_kinds)
+    _add_metadata(model, project, paint_kinds, _application(translation))
 
     resources = ET.SubElement(model, ns.q(ns.CORE, "resources"))
     painted_total = 0
@@ -550,7 +560,22 @@ def _bed_width(cfg) -> Optional[float]:
     return (max(xs) - min(xs)) if len(xs) >= 3 else None
 
 
-def _add_metadata(model, project: BambuProject, paint_kinds: set) -> None:
+def _application(translation: Optional[Translation]) -> str:
+    """What the output says it was written by.
+
+    A file with settings for a PrusaSlicer printer profile is a PrusaSlicer 2.x project
+    and says so, which is what makes PrusaSlicer 3 load its settings. PrusaSlicer 3
+    refuses a 2.x project whose printer model it does not know, so a file without
+    settings or with the Bambu printer translated (no printer model) stays generic:
+    PrusaSlicer 3 then loads its geometry instead of failing on it. PrusaSlicer 2.x
+    reads both kinds the same way.
+    """
+    if translation is not None and (translation.config.get("printer_model") or "").strip():
+        return PRUSA_PROJECT_APPLICATION
+    return GENERIC_APPLICATION
+
+
+def _add_metadata(model, project: BambuProject, paint_kinds: set, application: str) -> None:
     def meta(name, text):
         m = ET.SubElement(model, ns.q(ns.CORE, "metadata"))
         m.set("name", name)
@@ -560,6 +585,8 @@ def _add_metadata(model, project: BambuProject, paint_kinds: set) -> None:
     for attr, (_qname, version_key) in _PAINT_ATTRS.items():
         if attr in paint_kinds or attr == "paint_color":
             meta(version_key, "1")
+    # Before the title: PrusaSlicer looks for it in the first kilobyte of the file.
+    meta("Application", application)
     # Carry over a title if present.
     title = ""
     for md in project.root_tree.getroot().findall(ns.q(ns.CORE, "metadata")):
@@ -567,7 +594,6 @@ def _add_metadata(model, project: BambuProject, paint_kinds: set) -> None:
             title = md.text
     if title:
         meta("Title", title)
-    meta("Application", "panda2prusa")
 
 
 def _cfg_meta(parent, mtype: str, mkey: str, value: str) -> None:
