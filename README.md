@@ -160,7 +160,7 @@ python -m panda2prusa [options] input.3mf output.3mf
 | `--no-settings` | Geometry, extruders and painting only; no slicer settings. |
 | `--no-base-presets` | With `--bambu-settings` (implied): layer the Bambu settings on PrusaSlicer defaults instead of on your currently selected print and filament presets. |
 | `--keep-tool-colours` | Keep the printer profile's extruder colours instead of the Bambu filament colours. |
-| `--prusa-config-dir DIR` | PrusaSlicer configuration folder, if it is not in the usual place (`%APPDATA%\PrusaSlicer`). The `PRUSA_SLICER_CONFIG_DIR` environment variable does the same. |
+| `--prusa-config-dir DIR` | PrusaSlicer configuration folder, if it is not in the usual place (`%APPDATA%\PrusaSlicer` on Windows, `~/Library/Application Support/PrusaSlicer` on macOS, `~/.config/PrusaSlicer` on Linux). The `PRUSA_SLICER_CONFIG_DIR` environment variable does the same. |
 | `--info FILE` | Show a file's plates, filaments and preset names, then exit. |
 | `--list-printers` | List the PrusaSlicer printer presets you can pass to `--printer`, then exit. |
 
@@ -204,6 +204,20 @@ The exit code is non-zero when the conversion fails.
   bed slices and exports separately.
 - Read the notes the converter printed: they list the settings that had no PrusaSlicer
   equivalent.
+
+### PrusaSlicer 3.0 (alpha)
+
+- A converted file is a PrusaSlicer 2.9 project, and PrusaSlicer 3 opens it the way it
+  opens your own 2.9 projects: *File → Open Project* converts the printer, print and
+  filament settings to its new format on load.
+- This needs a PrusaSlicer printer profile in the file, which is what you get by default.
+  A file converted with `--printer bambu` or `--no-settings` opens in PrusaSlicer 3 with
+  its geometry only ("The 3MF file does not contain PrusaSlicer configuration").
+- The printer, print and filament presets are still read from the PrusaSlicer 2.x
+  configuration folder. PrusaSlicer 3 keeps its presets in a folder of its own
+  (`PrusaSlicer3`, `PrusaSlicer3-dev` for alphas and betas) in a new format that the
+  converter does not read, so keep PrusaSlicer 2.9 installed next to it, or give
+  `--printer` a config or project exported from 2.9.
 
 ## Building the exe yourself
 
