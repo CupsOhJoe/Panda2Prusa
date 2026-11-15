@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- PrusaSlicer 3.0 opened converted files as geometry only ("The 3MF file does not
+  contain PrusaSlicer configuration"). Files with a PrusaSlicer printer profile are now
+  marked as PrusaSlicer 2.9 projects, which PrusaSlicer 3 converts on load.
+
 ## v1.2.1 — 2026-11-11
 
 ### Fixed
